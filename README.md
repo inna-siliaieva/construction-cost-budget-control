@@ -21,9 +21,9 @@ The workflow automatically:
 
 The workflow uses the following rules:
 
-- `NORMAL` — budget usage below 80%
-- `WARNING` — budget usage from 80% to below 95%
-- `CRITICAL` — budget usage at or above 95%
+- `NORMAL` — budget usage below 80% and forecast remains within budget
+- `WARNING` — budget usage from 80% to below 95% and forecast remains within budget
+- `CRITICAL` — budget usage at or above 95% and forecast remains within budget
 - `OVERRUN` — forecast cost exceeds the approved budget
 
 Forecast cost is calculated from:
@@ -166,4 +166,4 @@ Construction Cost & Budget Control System
 
 The dataset used in this repository is sample project data created for workflow demonstration.
 
-Credentials and sensitive connection details should not be included in the public workflow export.
+The public workflow export included in this repository has been sanitized to remove credentials, private IDs, and sensitive connection details.
