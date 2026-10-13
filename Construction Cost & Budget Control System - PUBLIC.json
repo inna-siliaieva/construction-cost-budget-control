@@ -1,0 +1,635 @@
+{
+  "name": "Construction Cost & Budget Control System",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -624,
+        -32
+      ],
+      "id": "820af721-5b84-49d0-a94d-a8445243677c",
+      "name": "Run Cost Control Check"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Construction Cost & Budget Control"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "PROJECT_BUDGETS_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Project Budgets"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -384,
+        -96
+      ],
+      "id": "026bc450-668d-4850-a4e7-5f640543c150",
+      "name": "Retrieve Project Budgets"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Construction Cost & Budget Control"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "COST_TRANSACTIONS_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Cost Transactions"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -384,
+        96
+      ],
+      "id": "d6279a47-4814-4352-97aa-cb6b409bb52c",
+      "name": "Retrieve Cost Transactions"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Read data from both previous nodes\nconst budgets = $('Retrieve Project Budgets').all().map(item => item.json);\nconst transactions = $('Retrieve Cost Transactions').all().map(item => item.json);\n\n// Group transactions by Project ID + Cost Category\nconst groupedTransactions = {};\n\nfor (const tx of transactions) {\n  const key = `${tx['Project ID']}||${tx['Cost Category']}`;\n\n  if (!groupedTransactions[key]) {\n    groupedTransactions[key] = {\n      actual: 0,\n      committed: 0,\n    };\n  }\n\n  const amount = Number(tx['Amount']) || 0;\n  const costType = String(tx['Cost Type'] || '').trim().toLowerCase();\n\n  if (costType === 'actual') {\n    groupedTransactions[key].actual += amount;\n  }\n\n  if (costType === 'committed') {\n    groupedTransactions[key].committed += amount;\n  }\n}\n\n// Build one result row for every budget line\nconst results = budgets.map(budgetRow => {\n  const projectId = budgetRow['Project ID'];\n  const projectName = budgetRow['Project Name'];\n  const costCategory = budgetRow['Cost Category'];\n  const budget = Number(budgetRow['Budget']) || 0;\n\n  const key = `${projectId}||${costCategory}`;\n\n  const actualCost = groupedTransactions[key]?.actual || 0;\n  const committedCost = groupedTransactions[key]?.committed || 0;\n\n  const forecastCost = actualCost + committedCost;\n  const variance = budget - forecastCost;\n  const budgetUsedPercent =\n    budget > 0 ? (actualCost / budget) * 100 : 0;\n\n  let status = 'NORMAL';\n\n  if (forecastCost > budget) {\n    status = 'OVERRUN';\n  } else if (budgetUsedPercent >= 95) {\n    status = 'CRITICAL';\n  } else if (budgetUsedPercent >= 80) {\n    status = 'WARNING';\n  }\n\n  return {\n    json: {\n      'Budget Key': `${projectId}|${costCategory}`,\n      'Project ID': projectId,\n      'Project Name': projectName,\n      'Cost Category': costCategory,\n      'Budget': budget,\n      'Actual Cost': actualCost,\n      'Committed Cost': committedCost,\n      'Forecast Cost': forecastCost,\n      'Variance': variance,\n      'Budget Used %': Number(budgetUsedPercent.toFixed(2)),\n      'Status': status,\n    }\n  };\n});\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        16
+      ],
+      "id": "41d68daf-e1f8-4c44-9218-26f4fa2b750f",
+      "name": "Calculate Budget Metrics"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Construction Cost & Budget Control"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "BUDGET_CONTROL_SHEET_ID",
+          "mode": "id",
+          "cachedResultName": "Budget Control"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Budget Key": "={{ $json['Budget Key'] }}",
+            "Project ID": "={{ $json['Project ID'] }}",
+            "Project Name": "={{ $json['Project Name'] }}",
+            "Cost Category": "={{ $json['Cost Category'] }}",
+            "Budget": "={{ $json.Budget }}",
+            "Actual Cost": "={{ $json['Actual Cost'] }}",
+            "Committed Cost": "={{ $json['Committed Cost'] }}",
+            "Forecast Cost": "={{ $json['Forecast Cost'] }}",
+            "Variance": "={{ $json.Variance }}",
+            "Budget Used %": "={{ $json['Budget Used %'] }}",
+            "Status": "={{ $json.Status }}"
+          },
+          "matchingColumns": [
+            "Budget Key"
+          ],
+          "schema": [
+            {
+              "id": "Budget Key",
+              "displayName": "Budget Key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Project ID",
+              "displayName": "Project ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Project Name",
+              "displayName": "Project Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Cost Category",
+              "displayName": "Cost Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Budget",
+              "displayName": "Budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Actual Cost",
+              "displayName": "Actual Cost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Committed Cost",
+              "displayName": "Committed Cost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Forecast Cost",
+              "displayName": "Forecast Cost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Variance",
+              "displayName": "Variance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Budget Used %",
+              "displayName": "Budget Used %",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        288,
+        16
+      ],
+      "id": "f6520b05-cc24-437a-8749-483f46cafcba",
+      "name": "Update Budget Control"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -160,
+        16
+      ],
+      "id": "b18ab91b-d538-41c0-aa10-7d2093987abc",
+      "name": "Combine Budget & Cost Sources"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json[\"Status\"]}}",
+                    "rightValue": "WARNING",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "d0f1bed8-9685-470f-987d-2fb7d7bf1fe2"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Warning"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a2b98830-dd2c-4e6a-841e-c2790624f33a",
+                    "leftValue": "={{$json[\"Status\"]}}",
+                    "rightValue": "CRITICAL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Critical"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "8f212376-cf1f-4a4d-beb7-0bf1ea1b960d",
+                    "leftValue": "={{$json[\"Status\"]}}",
+                    "rightValue": "OVERRUN",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Overrun"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        512,
+        0
+      ],
+      "id": "ebf1b519-200b-4ef5-a861-d9b224ab9823",
+      "name": "Route Budget Risk"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "53aaf644-cf0e-488e-b035-83acd74f2de0",
+              "name": "Message",
+              "value": "=⚠️ BUDGET WARNING  Project: {{$json[\"Project Name\"]}} Category: {{$json[\"Cost Category\"]}}  Budget: €{{$json[\"Budget\"]}} Actual Cost: €{{$json[\"Actual Cost\"]}} Committed Cost: €{{$json[\"Committed Cost\"]}} Forecast Cost: €{{$json[\"Forecast Cost\"]}} Budget Used: {{$json[\"Budget Used %\"]}}%  Status: {{$json[\"Status\"]}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        736,
+        -112
+      ],
+      "id": "d24d134f-8233-4694-8180-c35beceb0eec",
+      "name": "Prepare Warning Alert"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6659b6c4-960a-4244-baef-68a71fb70288",
+              "name": "Message",
+              "value": "=🔴 CRITICAL BUDGET ALERT  Project: {{$json[\"Project Name\"]}} Category: {{$json[\"Cost Category\"]}}  Budget: €{{$json[\"Budget\"]}} Actual Cost: €{{$json[\"Actual Cost\"]}} Committed Cost: €{{$json[\"Committed Cost\"]}} Forecast Cost: €{{$json[\"Forecast Cost\"]}} Remaining Variance: €{{$json[\"Variance\"]}} Budget Used: {{$json[\"Budget Used %\"]}}%  Status: {{$json[\"Status\"]}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        736,
+        64
+      ],
+      "id": "ad049918-2379-44b6-ac7e-d8bcc5253b22",
+      "name": "Prepare Critical Alert"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "07704f46-a479-468b-a992-4a0c2f1dce64",
+              "name": "Message",
+              "value": "=🚨 BUDGET OVERRUN  Project: {{$json[\"Project Name\"]}} Category: {{$json[\"Cost Category\"]}}  Budget: €{{$json[\"Budget\"]}} Actual Cost: €{{$json[\"Actual Cost\"]}} Committed Cost: €{{$json[\"Committed Cost\"]}} Forecast Cost: €{{$json[\"Forecast Cost\"]}} Expected Overrun: €{{Math.abs($json[\"Variance\"])}}  Status: {{$json[\"Status\"]}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        736,
+        240
+      ],
+      "id": "37e99b8d-af41-4847-b551-23f392e57582",
+      "name": "Prepare Overrun Alert"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{$json[\"Message\"]}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        -112
+      ],
+      "id": "b13d03c4-8f10-4f26-9e8f-1b8a913a296e",
+      "name": "Send Warning Alert"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{$json[\"Message\"]}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        64
+      ],
+      "id": "0241720a-dcea-4a27-ac8a-628eebe9d8d1",
+      "name": "Send Critical Alert"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{$json[\"Message\"]}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        240
+      ],
+      "id": "636c11c1-4e8a-4458-95b5-e520027b2efd",
+      "name": "Send Overrun Alert"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(item => item.json);\n\nconst counts = {\n  NORMAL: 0,\n  WARNING: 0,\n  CRITICAL: 0,\n  OVERRUN: 0,\n};\n\nfor (const item of items) {\n  const status = item['Status'];\n  if (counts[status] !== undefined) {\n    counts[status]++;\n  }\n}\n\nconst problemItems = items.filter(item =>\n  ['WARNING', 'CRITICAL', 'OVERRUN'].includes(item['Status'])\n);\n\nlet message = `📊 DAILY BUDGET CONTROL SUMMARY\n\nProjects / categories checked: ${items.length}\n\n✅ Normal: ${counts.NORMAL}\n⚠️ Warning: ${counts.WARNING}\n🔴 Critical: ${counts.CRITICAL}\n🚨 Overrun: ${counts.OVERRUN}\n\n`;\n\nif (problemItems.length === 0) {\n  message += `No budget issues require attention.`;\n} else {\n  message += `ISSUES REQUIRING ATTENTION:\\n\\n`;\n\n  for (const item of problemItems) {\n    message += `${item['Project ID']} — ${item['Project Name']}\nCategory: ${item['Cost Category']}\nStatus: ${item['Status']}\nBudget: €${item['Budget']}\nActual Cost: €${item['Actual Cost']}\nCommitted Cost: €${item['Committed Cost']}\nForecast Cost: €${item['Forecast Cost']}\nBudget Used: ${item['Budget Used %']}%\nVariance: €${item['Variance']}\n\n`;\n  }\n}\n\nreturn [\n  {\n    json: {\n      Message: message,\n      TotalChecked: items.length,\n      NormalCount: counts.NORMAL,\n      WarningCount: counts.WARNING,\n      CriticalCount: counts.CRITICAL,\n      OverrunCount: counts.OVERRUN,\n      IssuesCount: problemItems.length,\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        224
+      ],
+      "id": "e1dd04e4-1398-4cee-956b-9880c7ad1ca8",
+      "name": "Generate Management Summary"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "={{$json[\"Message\"]}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        288,
+        224
+      ],
+      "id": "05b68444-c7dc-4efd-9df1-99bfd3a7e0ee",
+      "name": "Send Management Summary"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Run Cost Control Check": {
+      "main": [
+        [
+          {
+            "node": "Retrieve Project Budgets",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Retrieve Cost Transactions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve Project Budgets": {
+      "main": [
+        [
+          {
+            "node": "Combine Budget & Cost Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve Cost Transactions": {
+      "main": [
+        [
+          {
+            "node": "Combine Budget & Cost Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Calculate Budget Metrics": {
+      "main": [
+        [
+          {
+            "node": "Update Budget Control",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Management Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Budget & Cost Sources": {
+      "main": [
+        [
+          {
+            "node": "Calculate Budget Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Budget Control": {
+      "main": [
+        [
+          {
+            "node": "Route Budget Risk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Budget Risk": {
+      "main": [
+        [
+          {
+            "node": "Prepare Warning Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Critical Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Overrun Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Warning Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Warning Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Critical Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Critical Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Overrun Alert": {
+      "main": [
+        [
+          {
+            "node": "Send Overrun Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Management Summary": {
+      "main": [
+        [
+          {
+            "node": "Send Management Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
